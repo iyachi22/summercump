@@ -249,8 +249,9 @@ const RegistrationForm = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-orange-50 py-12">
       <div className="container mx-auto px-4">
         <div className="text-center mb-12">
-          <h2 className="text-4xl font-bold text-gray-900 mb-4">Inscription Summer Camp 2025</h2>
-          <p className="text-xl text-gray-600">Remplissez le formulaire ci-dessous pour rejoindre l'aventure</p>
+          <h2 className="text-4xl font-bold text-gray-900 mb-2">Inscription Summer Camp 2025</h2>
+          <p className="text-xl text-gray-600 mb-2">Tlemcen, Algérie</p>
+          <p className="text-gray-500">Remplissez le formulaire ci-dessous pour rejoindre l'aventure</p>
         </div>
 
         <form onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-8">
