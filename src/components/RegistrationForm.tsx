@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, Check } from "lucide-react";
+import { v4 as uuidv4 } from 'uuid';
 import WorkshopCard from "./WorkshopCard";
+import { supabase } from "@/lib/supabase";
 
 interface FormData {
   nom: string;
@@ -144,15 +146,74 @@ const RegistrationForm = () => {
     }
 
     setIsSubmitting(true);
-    
-    // Simulation d'envoi
-    setTimeout(() => {
+    console.log('Starting form submission...');
+
+    try {
+      console.log('Preparing to upload file...');
+      // Upload the proof file to Supabase Storage
+      const fileExt = formData.preuveFile.name.split('.').pop();
+      const fileName = `${uuidv4()}.${fileExt}`;
+      const filePath = `proofs/${fileName}`;
+
+      console.log('Uploading file to Supabase Storage...', {
+        bucket: 'preuves',
+        filePath,
+        fileType: formData.preuveFile.type,
+        fileSize: formData.preuveFile.size
+      });
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('preuves')
+        .upload(filePath, formData.preuveFile, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error('File upload error:', uploadError);
+        throw new Error(`Erreur lors du téléversement du fichier: ${uploadError.message}`);
+      }
+
+      console.log('File uploaded successfully:', uploadData);
+
+      // Get the public URL of the uploaded file
+      const { data: { publicUrl } } = supabase.storage
+        .from('preuves')
+        .getPublicUrl(filePath);
+
+      console.log('Generated public URL:', publicUrl);
+
+      // Prepare data for database
+      const inscriptionData = {
+        nom: formData.nom,
+        prenom: formData.prenom,
+        date_naissance: formData.dateNaissance,
+        email: formData.email,
+        telephone: formData.telephone,
+        atelier: formData.atelier,
+        fichier_url: publicUrl
+      };
+
+      console.log('Inserting data into database:', inscriptionData);
+
+      // Insert the registration data into the database
+      const { data, error } = await supabase
+        .from('inscriptions')
+        .insert([inscriptionData])
+        .select();
+
+      if (error) {
+        console.error('Database insert error:', error);
+        throw new Error(`Erreur lors de l'enregistrement dans la base de données: ${error.message}`);
+      }
+
+      console.log('Data inserted successfully:', data);
+
       toast({
         title: "Inscription réussie !",
-        description: "Vous recevrez un email de confirmation sous peu.",
+        description: "Votre inscription a été enregistrée avec succès.",
       });
-      setIsSubmitting(false);
-      
+
       // Reset form
       setFormData({
         nom: "",
@@ -163,7 +224,28 @@ const RegistrationForm = () => {
         atelier: "",
         preuveFile: null
       });
-    }, 2000);
+    } catch (error) {
+      console.error('Error submitting form:', error);
+      
+      // More detailed error message
+      let errorMessage = "Une erreur est survenue lors de l'enregistrement de votre inscription.";
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error && typeof error === 'object' && 'message' in error) {
+        errorMessage = String(error.message);
+      }
+      
+      toast({
+        title: "Erreur",
+        description: errorMessage,
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const selectedWorkshop = workshops.find(w => w.id === formData.atelier);
