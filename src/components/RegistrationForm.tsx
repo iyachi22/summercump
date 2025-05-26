@@ -9,6 +9,7 @@ import { Upload, Check } from "lucide-react";
 import { v4 as uuidv4 } from 'uuid';
 import WorkshopCard from "./WorkshopCard";
 import { supabase } from "@/lib/supabase";
+import { sendConfirmationEmail } from "@/services/emailService";
 
 interface FormData {
   nom: string;
@@ -146,72 +147,65 @@ const RegistrationForm = () => {
     }
 
     setIsSubmitting(true);
-    console.log('Starting form submission...');
 
     try {
-      console.log('Preparing to upload file...');
-      // Upload the proof file to Supabase Storage
+      // 1. Upload file to storage
       const fileExt = formData.preuveFile.name.split('.').pop();
       const fileName = `${uuidv4()}.${fileExt}`;
       const filePath = `proofs/${fileName}`;
 
-      console.log('Uploading file to Supabase Storage...', {
-        bucket: 'preuves',
-        filePath,
-        fileType: formData.preuveFile.type,
-        fileSize: formData.preuveFile.size
-      });
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('preuves')
         .upload(filePath, formData.preuveFile, {
           cacheControl: '3600',
-          upsert: false
+          upsert: false,
+          contentType: formData.preuveFile.type
         });
 
-      if (uploadError) {
-        console.error('File upload error:', uploadError);
-        throw new Error(`Erreur lors du téléversement du fichier: ${uploadError.message}`);
-      }
+      if (uploadError) throw uploadError;
 
-      console.log('File uploaded successfully:', uploadData);
-
-      // Get the public URL of the uploaded file
+      // 2. Get public URL
       const { data: { publicUrl } } = supabase.storage
         .from('preuves')
         .getPublicUrl(filePath);
 
-      console.log('Generated public URL:', publicUrl);
+      // 3. Generate confirmation token
+      const token = uuidv4();
+      const confirmationLink = `${window.location.origin}/confirm?token=${token}`;
 
-      // Prepare data for database
-      const inscriptionData = {
-        nom: formData.nom,
-        prenom: formData.prenom,
-        date_naissance: formData.dateNaissance,
-        email: formData.email,
-        telephone: formData.telephone,
-        atelier: formData.atelier,
-        fichier_url: publicUrl
-      };
-
-      console.log('Inserting data into database:', inscriptionData);
-
-      // Insert the registration data into the database
-      const { data, error } = await supabase
+      // 4. Save to inscriptions table
+      const { error } = await supabase
         .from('inscriptions')
-        .insert([inscriptionData])
-        .select();
-
-      if (error) {
-        console.error('Database insert error:', error);
-        throw new Error(`Erreur lors de l'enregistrement dans la base de données: ${error.message}`);
+        .insert([{
+          nom: formData.nom,
+          prenom: formData.prenom,
+          date_naissance: formData.dateNaissance,
+          email: formData.email,
+          telephone: formData.telephone,
+          atelier: formData.atelier,
+          preuve_url: publicUrl,
+          token: token,
+          valide: false // Will be set to true after email confirmation
+        }]);
+        
+      // 4.1 Clean up any old unverified registrations
+      try {
+        const { cleanupUnverifiedRegistrations } = await import('@/services/cleanupService');
+        await cleanupUnverifiedRegistrations();
+      } catch (error) {
+        console.error('Error during cleanup:', error);
+        // Don't fail the registration if cleanup fails
       }
 
-      console.log('Data inserted successfully:', data);
+      if (error) throw error;
 
+      // 5. Send confirmation email
+      await sendConfirmationEmail(formData.email, confirmationLink);
+
+      // 6. Show success message
       toast({
-        title: "Inscription réussie !",
-        description: "Votre inscription a été enregistrée avec succès.",
+        title: "Presque terminé !",
+        description: "Veuillez vérifier votre email pour confirmer votre inscription."
       });
 
       // Reset form
@@ -224,8 +218,9 @@ const RegistrationForm = () => {
         atelier: "",
         preuveFile: null
       });
+
     } catch (error) {
-      console.error('Error submitting form:', error);
+      console.error('Error:', error);
       
       // More detailed error message
       let errorMessage = "Une erreur est survenue lors de l'enregistrement de votre inscription.";
