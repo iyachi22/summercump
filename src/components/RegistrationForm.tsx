@@ -1,15 +1,43 @@
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Check } from "lucide-react";
+import { Upload, Check, Loader2 } from "lucide-react";
 import { v4 as uuidv4 } from 'uuid';
 import WorkshopCard from "./WorkshopCard";
 import { supabase } from "@/lib/supabase";
 import { sendConfirmationEmail } from "@/services/emailService";
+
+// Function to check if table exists and is accessible
+const checkTableAccess = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('inscriptions')
+      .select('*')
+      .limit(1);
+      
+    if (error) {
+      console.error('Table access check failed:', error);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Error checking table access:', error);
+    return false;
+  }
+};
+
+interface Atelier {
+  id: string;
+  nom: string;
+  description: string;
+  icon: string;
+  level: string;
+  duration: string;
+}
 
 interface FormData {
   nom: string;
@@ -17,14 +45,14 @@ interface FormData {
   dateNaissance: string;
   email: string;
   telephone: string;
-  atelier: string;
+  ateliers: string[]; 
   preuveFile: File | null;
 }
 
-const workshops = [
+const workshops: Atelier[] = [
   {
     id: "web",
-    title: "Développement Web",
+    nom: "Développement Web",
     description: "Apprenez à créer des sites web modernes avec HTML, CSS, JavaScript et React",
     icon: "💻",
     level: "Débutant",
@@ -32,7 +60,7 @@ const workshops = [
   },
   {
     id: "ai",
-    title: "Intelligence Artificielle",
+    nom: "Intelligence Artificielle",
     description: "Découvrez les fondamentaux de l'IA et créez vos premiers modèles",
     icon: "🤖",
     level: "Intermédiaire",
@@ -40,7 +68,7 @@ const workshops = [
   },
   {
     id: "design",
-    title: "Infographie",
+    nom: "Infographie",
     description: "Maîtrisez les outils de design graphique et créez des visuels époustouflants",
     icon: "🎨",
     level: "Débutant",
@@ -48,23 +76,15 @@ const workshops = [
   },
   {
     id: "content",
-    title: "Création de Contenu",
-    description: "Apprenez à créer du contenu engageant pour les réseaux sociaux",
-    icon: "📝",
-    level: "Débutant",
-    duration: "1 semaine"
-  },
-  {
-    id: "photo",
-    title: "Photographie",
-    description: "Perfectionnez vos techniques photo et développez votre œil artistique",
-    icon: "📸",
+    nom: "Création de Contenu",
+    description: "Développez votre présence en ligne avec des contenus engageants",
+    icon: "✍️",
     level: "Débutant",
     duration: "1 semaine"
   },
   {
     id: "video",
-    title: "Montage Vidéo",
+    nom: "Montage Vidéo",
     description: "Créez des vidéos professionnelles avec les derniers outils de montage",
     icon: "🎬",
     level: "Intermédiaire",
@@ -72,7 +92,7 @@ const workshops = [
   },
   {
     id: "entrepreneur",
-    title: "Entrepreneuriat",
+    nom: "Entrepreneuriat",
     description: "Développez votre esprit d'entreprise et lancez votre startup",
     icon: "💼",
     level: "Intermédiaire",
@@ -80,7 +100,7 @@ const workshops = [
   },
   {
     id: "entrepreneur-en",
-    title: "Entrepreneuriat (Anglais)",
+    nom: "Entrepreneuriat (Anglais)",
     description: "Develop your business mindset and launch your startup in English",
     icon: "🌍",
     level: "Intermédiaire",
@@ -96,13 +116,52 @@ const RegistrationForm = () => {
     dateNaissance: "",
     email: "",
     telephone: "",
-    atelier: "",
-    preuveFile: null
+    ateliers: [], 
+    preuveFile: null,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(false);
+  const [tableAccessible, setTableAccessible] = useState<boolean | null>(null);
+  
+  // Check table access on component mount
+  useEffect(() => {
+    const verifyTableAccess = async () => {
+      setIsCheckingAccess(true);
+      try {
+        const isAccessible = await checkTableAccess();
+        setTableAccessible(isAccessible);
+        if (!isAccessible) {
+          console.error('Database table is not accessible. Check your Supabase configuration and RLS policies.');
+        }
+      } catch (error) {
+        console.error('Error verifying table access:', error);
+        setTableAccessible(false);
+      } finally {
+        setIsCheckingAccess(false);
+      }
+    };
+    
+    verifyTableAccess();
+  }, []);
 
-  const handleInputChange = (field: keyof FormData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const handleWorkshopSelect = (workshopId: string) => {
+    setFormData(prev => {
+      const newAteliers = prev.ateliers.includes(workshopId)
+        ? prev.ateliers.filter(id => id !== workshopId)
+        : [...prev.ateliers, workshopId];
+      
+      return {
+        ...prev,
+        ateliers: newAteliers
+      };
+    });
+  };
+
+  const handleInputChange = (field: keyof Omit<FormData, 'ateliers' | 'preuveFile'>, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -128,99 +187,168 @@ const RegistrationForm = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.atelier) {
+    // Check if table is accessible
+    if (tableAccessible === false) {
       toast({
-        title: "Atelier requis",
-        description: "Veuillez sélectionner un atelier.",
+        title: "Erreur de base de données",
+        description: "Impossible d'accéder à la base de données. Veuillez réessayer plus tard.",
         variant: "destructive"
       });
       return;
     }
-
-    if (!formData.preuveFile) {
-      toast({
-        title: "Preuve de paiement requise",
-        description: "Veuillez téléverser votre preuve de paiement.",
-        variant: "destructive"
-      });
-      return;
-    }
-
+    
     setIsSubmitting(true);
 
     try {
-      // 1. Upload file to storage
-      const fileExt = formData.preuveFile.name.split('.').pop();
-      const fileName = `${uuidv4()}.${fileExt}`;
-      const filePath = `proofs/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('preuves')
-        .upload(filePath, formData.preuveFile, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: formData.preuveFile.type
+      // Validate form data
+      if (!formData.nom || !formData.prenom || !formData.dateNaissance || 
+          !formData.email || !formData.telephone || formData.ateliers.length === 0) {
+        toast({
+          title: "Erreur",
+          description: formData.ateliers.length === 0 
+            ? "Veuillez sélectionner au moins un atelier" 
+            : "Veuillez remplir tous les champs obligatoires",
+          variant: "destructive"
         });
-
-      if (uploadError) throw uploadError;
-
-      // 2. Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('preuves')
-        .getPublicUrl(filePath);
-
-      // 3. Generate confirmation token
-      const token = uuidv4();
-      const confirmationLink = `${window.location.origin}/confirm?token=${token}`;
-
-      // 4. Save to inscriptions table
-      const { error } = await supabase
-        .from('inscriptions')
-        .insert([{
-          nom: formData.nom,
-          prenom: formData.prenom,
-          date_naissance: formData.dateNaissance,
-          email: formData.email,
-          telephone: formData.telephone,
-          atelier: formData.atelier,
-          preuve_url: publicUrl,
-          token: token,
-          valide: false // Will be set to true after email confirmation
-        }]);
-        
-      // 4.1 Clean up any old unverified registrations
-      try {
-        const { cleanupUnverifiedRegistrations } = await import('@/services/cleanupService');
-        await cleanupUnverifiedRegistrations();
-      } catch (error) {
-        console.error('Error during cleanup:', error);
-        // Don't fail the registration if cleanup fails
+        setIsSubmitting(false);
+        return;
       }
 
-      if (error) throw error;
+      if (!formData.preuveFile) {
+        toast({
+          title: "Preuve de paiement requise",
+          description: "Veuillez téléverser votre preuve de paiement.",
+          variant: "destructive"
+        });
+        setIsSubmitting(false);
+        return;
+      }
 
-      // 5. Send confirmation email
-      await sendConfirmationEmail(formData.email, confirmationLink);
+      // Upload file to Supabase storage if exists
+      let fileUrl = "";
+      if (formData.preuveFile) {
+        const fileExt = formData.preuveFile.name.split('.').pop();
+        const fileName = `${uuidv4()}.${fileExt}`;
+        const { data: fileData, error: fileError } = await supabase.storage
+          .from('preuves')
+          .upload(fileName, formData.preuveFile);
 
-      // 6. Show success message
+        if (fileError) {
+          console.error('File upload error:', fileError);
+          throw fileError;
+        }
+        fileUrl = fileData.path;
+      }
+
+      // Generate a single confirmation token for all workshops
+      const confirmationToken = uuidv4();
+      
+      // Prepare data for database with additional validation
+      const inscriptionData = {
+        nom: formData.nom.trim(),
+        prenom: formData.prenom.trim(),
+        date_naissance: formData.dateNaissance, // Should be in YYYY-MM-DD format
+        email: formData.email.trim().toLowerCase(),
+        telephone: formData.telephone.trim(),
+        preuve_url: fileUrl || '',
+        token: confirmationToken,
+        valide: false
+      };
+      
+      // Get selected ateliers
+      const selectedAteliers = formData.ateliers
+        .map(atelierId => workshops.find(w => w.id === atelierId))
+        .filter((atelier): atelier is Atelier => atelier !== undefined);
+        
+      if (selectedAteliers.length === 0) {
+        throw new Error('Aucun atelier valide sélectionné');
+      }
+        
+      // Validate required fields
+      const requiredFields = ['nom', 'prenom', 'date_naissance', 'email', 'telephone'];
+      const missingFields = requiredFields.filter(field => !inscriptionData[field as keyof typeof inscriptionData]);
+      
+      if (missingFields.length > 0) {
+        throw new Error(`Champs manquants: ${missingFields.join(', ')}`);
+      }
+
+      console.log('Prepared registration data:', JSON.stringify(inscriptionData, null, 2));
+      
+      console.log('Inserting registration with ateliers:', {
+        inscription: inscriptionData,
+        ateliers: selectedAteliers.map(a => a.nom)
+      });
+      
+      // Clean up any old unverified registrations
+      try {
+        const { cleanupUnverifiedRegistrations } = await import('@/services/cleanupService');
+        try {
+          await cleanupUnverifiedRegistrations();
+        } catch (cleanupError) {
+          console.error('Error during cleanup:', cleanupError);
+        }
+      } catch (importError) {
+        console.error('Error importing cleanup service:', importError);
+      }
+
+      // Start a transaction to insert inscription and ateliers
+      const { data: inscription, error: inscriptionError } = await supabase.rpc('create_inscription_with_ateliers', {
+        p_inscription: inscriptionData,
+        p_atelier_ids: selectedAteliers.map(a => a.id)
+      }).select();
+      
+      if (inscriptionError) {
+        console.error('Error creating inscription with ateliers:', inscriptionError);
+        throw inscriptionError;
+      }
+
+      // Verify the data was inserted
+      if (!inscription || inscription.length === 0) {
+        throw new Error('No data returned from insert operation');
+      }
+
+      console.log('Successfully inserted inscription with ateliers:', inscription);
+      
+      // Get the inserted inscription ID
+      const insertedInscription = inscription[0];
+      console.log('Confirmed database insertion with ID:', insertedInscription.id);
+      
+      // Verify the atelier relationships were created
+      const { data: atelierRelations, error: relationsError } = await supabase
+        .from('inscription_atelier')
+        .select('*')
+        .eq('inscription_id', insertedInscription.id);
+        
+      if (relationsError) {
+        console.error('Error verifying atelier relationships:', relationsError);
+      } else {
+        console.log('Created atelier relationships:', atelierRelations);
+      }
+        
+      // Send confirmation email
+      const confirmationLink = `${window.location.origin}/confirmer-inscription?token=${confirmationToken}`;
+      await sendConfirmationEmail(formData.email, confirmationLink, formData.ateliers.join(', '));
+
+      // Show success message
       toast({
-        title: "Presque terminé !",
-        description: "Veuillez vérifier votre email pour confirmer votre inscription."
+        title: "Inscription enregistrée !",
+        description: "Un email de confirmation vous a été envoyé.",
+        variant: "default"
       });
 
       // Reset form
       setFormData({
-        nom: "",
-        prenom: "",
-        dateNaissance: "",
-        email: "",
-        telephone: "",
-        atelier: "",
+        nom: '',
+        prenom: '',
+        dateNaissance: '',
+        email: '',
+        telephone: '',
+        ateliers: [],
         preuveFile: null
       });
 
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Registration error:', error);
       
       // More detailed error message
       let errorMessage = "Une erreur est survenue lors de l'enregistrement de votre inscription.";
@@ -243,86 +371,85 @@ const RegistrationForm = () => {
     }
   };
 
-  const selectedWorkshop = workshops.find(w => w.id === formData.atelier);
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-orange-50 py-12">
-      <div className="container mx-auto px-4">
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto">
         <div className="text-center mb-12">
-          <h2 className="text-4xl font-bold text-gray-900 mb-2">Inscription Summer Camp 2025</h2>
-          <p className="text-xl text-gray-600 mb-2">Tlemcen, Algérie</p>
-          <p className="text-gray-500">Remplissez le formulaire ci-dessous pour rejoindre l'aventure</p>
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+            Inscription au Camp d'Été 2024
+          </h1>
+          <p className="text-lg text-gray-600">
+            Rejoignez-nous pour une expérience inoubliable !
+          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-8">
+        <form onSubmit={handleSubmit} className="space-y-8">
           {/* Informations personnelles */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-2xl">
-                👤 Informations personnelles
+                👤 Informations Personnelles
               </CardTitle>
+              <p className="text-gray-600">Renseignez vos informations de contact</p>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
                   <Label htmlFor="nom">Nom *</Label>
                   <Input
                     id="nom"
-                    type="text"
-                    required
                     value={formData.nom}
                     onChange={(e) => handleInputChange("nom", e.target.value)}
-                    className="mt-1"
+                    placeholder="Votre nom"
+                    required
                   />
                 </div>
-                <div>
+                <div className="space-y-2">
                   <Label htmlFor="prenom">Prénom *</Label>
                   <Input
                     id="prenom"
-                    type="text"
-                    required
                     value={formData.prenom}
                     onChange={(e) => handleInputChange("prenom", e.target.value)}
-                    className="mt-1"
+                    placeholder="Votre prénom"
+                    required
                   />
                 </div>
               </div>
-              
-              <div>
-                <Label htmlFor="dateNaissance">Date de naissance *</Label>
-                <Input
-                  id="dateNaissance"
-                  type="date"
-                  required
-                  value={formData.dateNaissance}
-                  onChange={(e) => handleInputChange("dateNaissance", e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <Label htmlFor="email">Adresse e-mail *</Label>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="dateNaissance">Date de naissance *</Label>
+                  <Input
+                    id="dateNaissance"
+                    type="date"
+                    value={formData.dateNaissance}
+                    onChange={(e) => handleInputChange("dateNaissance", e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email *</Label>
                   <Input
                     id="email"
                     type="email"
-                    required
                     value={formData.email}
                     onChange={(e) => handleInputChange("email", e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="telephone">Numéro de téléphone *</Label>
-                  <Input
-                    id="telephone"
-                    type="tel"
+                    placeholder="votre@email.com"
                     required
-                    value={formData.telephone}
-                    onChange={(e) => handleInputChange("telephone", e.target.value)}
-                    className="mt-1"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="telephone">Téléphone *</Label>
+                <Input
+                  id="telephone"
+                  type="tel"
+                  value={formData.telephone}
+                  onChange={(e) => handleInputChange("telephone", e.target.value)}
+                  placeholder="Votre numéro de téléphone"
+                  required
+                />
               </div>
             </CardContent>
           </Card>
@@ -333,31 +460,51 @@ const RegistrationForm = () => {
               <CardTitle className="flex items-center gap-2 text-2xl">
                 🎯 Choisissez votre atelier
               </CardTitle>
-              <p className="text-gray-600">Sélectionnez l'atelier qui vous intéresse le plus</p>
+              <p className="text-gray-600">Sélectionnez un ou plusieurs ateliers</p>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {workshops.map((workshop) => (
-                  <WorkshopCard
-                    key={workshop.id}
-                    title={workshop.title}
-                    description={workshop.description}
-                    icon={workshop.icon}
-                    level={workshop.level}
-                    duration={workshop.duration}
-                    isSelected={formData.atelier === workshop.id}
-                    onClick={() => handleInputChange("atelier", workshop.id)}
-                  />
-                ))}
-              </div>
-              
-              {selectedWorkshop && (
-                <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <p className="text-blue-800">
-                    <strong>Atelier sélectionné :</strong> {selectedWorkshop.title}
-                  </p>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  Sélectionnez un ou plusieurs ateliers :
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {workshops.map((workshop) => (
+                    <div
+                      key={workshop.id}
+                      className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                        formData.ateliers.includes(workshop.id)
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
+                      }`}
+                      onClick={() => handleWorkshopSelect(workshop.id)}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="flex-shrink-0 text-2xl">
+                          {workshop.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            {workshop.nom}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {workshop.level} • {workshop.duration}
+                          </p>
+                        </div>
+                        {formData.ateliers.includes(workshop.id) && (
+                          <div className="text-blue-600 dark:text-blue-400">
+                            <Check className="w-5 h-5" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
+                {formData.ateliers.length > 0 && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Sélectionné(s): {formData.ateliers.length} atelier(s)
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -398,14 +545,26 @@ const RegistrationForm = () => {
 
           {/* Bouton de soumission */}
           <div className="text-center">
-            <Button
-              type="submit"
-              size="lg"
-              disabled={isSubmitting}
-              className="bg-summer-gradient text-white px-12 py-4 text-lg rounded-full hover:shadow-lg transition-all duration-300 transform hover:scale-105"
-            >
-              {isSubmitting ? "Inscription en cours..." : "Confirmer l'inscription"}
-            </Button>
+            {isCheckingAccess ? (
+              <div className="flex items-center justify-center gap-2 p-4 text-blue-600">
+                <Loader2 className="w-6 h-6 animate-spin" />
+                <span>Vérification de la base de données...</span>
+              </div>
+            ) : tableAccessible === false ? (
+              <div className="p-4 text-red-600 bg-red-50 rounded-lg">
+                <p>Erreur: Impossible de se connecter à la base de données.</p>
+                <p className="text-sm">Veuillez réessayer plus tard ou contacter le support.</p>
+              </div>
+            ) : (
+              <Button
+                type="submit"
+                size="lg"
+                disabled={isSubmitting || tableAccessible === null}
+                className="bg-summer-gradient text-white px-12 py-4 text-lg rounded-full hover:shadow-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? "Inscription en cours..." : "Confirmer l'inscription"}
+              </Button>
+            )}
           </div>
         </form>
       </div>

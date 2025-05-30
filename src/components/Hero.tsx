@@ -25,7 +25,7 @@ const Hero = ({ onScrollToForm }: { onScrollToForm: () => void }) => {
           </div>
           <div className="flex items-center gap-2">
             <MapPin className="w-6 h-6" />
-            <span>France</span>
+            <span>Algerie</span>
           </div>
           <div className="flex items-center gap-2">
             <Users className="w-6 h-6" />

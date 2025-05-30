@@ -12,12 +12,28 @@ const isValidEmail = (email: string): boolean => {
   return re.test(email);
 };
 
-export const sendConfirmationEmail = async (email: string, confirmationLink: string) => {
+export const sendConfirmationEmail = async (email: string, confirmationLink: string, selectedWorkshops: string) => {
   console.log('[EmailService] Sending confirmation email to:', email);
+  
+  // Log all environment variables (without sensitive data)
+  console.log('[EmailService] Environment:', {
+    nodeEnv: process.env.NODE_ENV,
+    serviceId: SERVICE_ID ? '***' + SERVICE_ID.slice(-4) : 'Not set',
+    templateId: TEMPLATE_ID ? '***' + TEMPLATE_ID.slice(-4) : 'Not set',
+    hasPublicKey: !!PUBLIC_KEY,
+    isClient: typeof window !== 'undefined'
+  });
   
   // Validate email parameter
   if (!email || typeof email !== 'string' || !isValidEmail(email)) {
     const errorMsg = `Invalid email address: ${email}`;
+    console.error('[EmailService]', errorMsg);
+    throw new Error(errorMsg);
+  }
+  
+  // Validate selected workshops
+  if (!selectedWorkshops || typeof selectedWorkshops !== 'string') {
+    const errorMsg = 'Selected workshops information is missing or invalid';
     console.error('[EmailService]', errorMsg);
     throw new Error(errorMsg);
   }
@@ -52,19 +68,25 @@ export const sendConfirmationEmail = async (email: string, confirmationLink: str
     
     const templateParams = {
       to_email: email,
-      to_name: email.split('@')[0], // Add recipient's name (first part of email)
-      from_name: 'Summer Camp Registration',
-      from_email: 'noreply@summercamp.com', // Add from_email for better compatibility
-      reply_to: 'noreply@summercamp.com',
-      subject: 'Confirm Your Registration',
+      from_name: "Équipe du Camp d'Été",
+      reply_to: "contact@votresite.com",
+      subject: "Confirmez votre inscription au Camp d'Été",
+      message: `Vous vous êtes inscrit aux ateliers suivants : ${selectedWorkshops}
+    
+Veuillez confirmer votre inscription en cliquant sur le lien ci-dessous :`,
       confirmation_link: confirmationLink,
-      message: 'Please confirm your registration by clicking the link below:'
+      selected_workshops: selectedWorkshops
     };
     
-    console.log('[EmailService] Template parameters:', {
-      ...templateParams,
-      confirmation_link: templateParams.confirmation_link ? '***' : 'Missing',
-      to_email: templateParams.to_email ? '***' + templateParams.to_email.split('@')[1] : 'Missing'
+    console.log('[EmailService] Sending with parameters:', {
+      serviceId: SERVICE_ID,
+      templateId: TEMPLATE_ID,
+      publicKey: PUBLIC_KEY ? '***' + PUBLIC_KEY.slice(-4) : 'Not set',
+      templateParams: {
+        ...templateParams,
+        confirmation_link: templateParams.confirmation_link ? '***' : 'Missing',
+        to_email: templateParams.to_email ? '***' + templateParams.to_email.split('@')[1] : 'Missing'
+      }
     });
     
     // Ensure we're using the correct format for EmailJS
