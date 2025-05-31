@@ -6,8 +6,8 @@ window.appConfig = {
   VITE_EMAILJS_PUBLIC_KEY: 'ZjxXaYm0dsj9It_Z6',
   
   // Supabase Configuration
-  VITE_SUPABASE_URL: 'https://vlfunwonenzpfwkhlfko.supabase.co', // Your Supabase URL
-  VITE_SUPABASE_ANON_KEY: 'your-supabase-anon-key' // Your Supabase Anon Key
+  VITE_SUPABASE_URL: 'https://vlfunwonenzpfwkhlfko.supabase.co',
+  VITE_SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsZnVud29uZW56cGZ3a2hsZmtvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTcwOTUyNDgsImV4cCI6MjAzMjY3MTI0OH0.9KJ5X6Q8Q2qZ9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9Z9'
 };
 
 // Log the loaded config (for debugging)

@@ -326,7 +326,7 @@ const RegistrationForm = () => {
       }
         
       // Send confirmation email
-      const confirmationLink = `${window.location.origin}/confirmer-inscription?token=${confirmationToken}`;
+      const confirmationLink = `${window.location.origin}/confirm?token=${confirmationToken}`;
       await sendConfirmationEmail(formData.email, confirmationLink, formData.ateliers.join(', '));
 
       // Show success message
